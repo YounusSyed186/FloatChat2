@@ -1,0 +1,33 @@
+# Core scientific/data libraries
+numpy
+pandas
+xarray
+scipy
+netCDF4
+h5netcdf
+cftime
+
+# Visualization
+plotly
+folium
+matplotlib
+
+# Web app / UI
+streamlit
+
+# Database
+psycopg2-binary
+
+# Vector search
+faiss-cpu
+
+# RAG and LLM integration
+langchain
+groq
+langchain_groq
+
+# Environment Variables
+python-dotenv
+
+# (Optional) For notebooks
+# jupyter
