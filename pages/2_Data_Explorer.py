@@ -28,60 +28,90 @@ st.set_page_config(
 # Custom CSS for styling
 st.markdown("""
 <style>
+    /* Main Header */
     .main-header {
         font-size: 2.5rem;
+        font-weight: 700;
         color: #1f77b4;
         margin-bottom: 0.5rem;
+        text-align: center;
     }
+
+    /* Sub Headers */
     .sub-header {
         font-size: 1.5rem;
+        font-weight: 600;
         color: #1f77b4;
         border-bottom: 2px solid #1f77b4;
         padding-bottom: 0.3rem;
         margin-top: 1.5rem;
         margin-bottom: 1rem;
     }
+
+    /* Metric Cards */
     .metric-card {
-        background-color: #f0f2f6;
+        background-color: #f9fafb;
         padding: 1rem;
-        border-radius: 0.5rem;
+        border-radius: 0.75rem;
         border-left: 4px solid #1f77b4;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        transition: all 0.3s ease;
     }
+    .metric-card:hover {
+        background-color: #eef6fb;
+        transform: translateY(-2px);
+    }
+
+    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+        gap: 10px;
     }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
+        height: 48px;
         white-space: pre-wrap;
         background-color: #f0f2f6;
-        border-radius: 4px 4px 0px 0px;
-        gap: 1px;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        border-radius: 10px 10px 0 0;
+        padding: 10px 18px;
+        font-weight: 600;
+        color: #444;
+        transition: all 0.3s ease;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #e4e9f0;
+        color: #1f77b4;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #1f77b4;
-        color: white;
+        background: linear-gradient(90deg, #1f77b4, #155d91);
+        color: white !important;
+        box-shadow: 0px -2px 8px rgba(0,0,0,0.2);
+        border: none;
     }
+
+    /* Sidebar */
     .sidebar .sidebar-content {
         background-color: #f8f9fa;
     }
     div[data-testid="stSidebarUserContent"] {
         padding: 1rem;
     }
+
+    /* Filter Section */
     .filter-section {
         background-color: white;
         padding: 1rem;
-        border-radius: 0.5rem;
+        border-radius: 0.75rem;
         margin-bottom: 1rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
     }
+
+    /* Info Box */
     .info-box {
         background-color: #e8f4fd;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 4px solid #1f77b4;
         margin-bottom: 1rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.08);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -106,93 +136,6 @@ def initialize_components():
         st.error(f"Failed to initialize components: {str(e)}")
         return False
 
-def build_filters_from_sidebar():
-    """Build filter dictionary from sidebar inputs"""
-    filters = {}
-    
-    st.sidebar.markdown('<div class="filter-section">', unsafe_allow_html=True)
-    st.sidebar.subheader("🔍 Data Filters")
-    
-    # Float ID filter
-    float_id = st.sidebar.text_input("Float ID", help="Enter specific float ID to filter")
-    if float_id:
-        filters['float_id'] = float_id
-    
-    # Date range filter
-    st.sidebar.markdown("**Date Range**")
-    date_option = st.sidebar.selectbox(
-        "Select date range",
-        ["All dates", "Last 30 days", "Last 6 months", "Last year", "Custom range"],
-        label_visibility="collapsed"
-    )
-    
-    if date_option == "Last 30 days":
-        filters['start_date'] = datetime.now() - timedelta(days=30)
-        filters['end_date'] = datetime.now()
-    elif date_option == "Last 6 months":
-        filters['start_date'] = datetime.now() - timedelta(days=180)
-        filters['end_date'] = datetime.now()
-    elif date_option == "Last year":
-        filters['start_date'] = datetime.now() - timedelta(days=365)
-        filters['end_date'] = datetime.now()
-    elif date_option == "Custom range":
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            start_date = st.date_input("Start date")
-            if start_date:
-                filters['start_date'] = datetime.combine(start_date, datetime.min.time())
-        with col2:
-            end_date = st.date_input("End date")
-            if end_date:
-                filters['end_date'] = datetime.combine(end_date, datetime.max.time())
-    
-    # Geographic filters
-    st.sidebar.markdown("**Geographic Region**")
-    
-    # Predefined regions
-    region_option = st.sidebar.selectbox(
-        "Select region",
-        ["Global", "Indian Ocean", "Pacific Ocean", "Atlantic Ocean", "Arabian Sea", "Mediterranean Sea", "Custom coordinates"],
-        label_visibility="collapsed"
-    )
-    
-    region_bounds = {
-        "Indian Ocean": {"min_lat": -40, "max_lat": 25, "min_lon": 20, "max_lon": 120},
-        "Pacific Ocean": {"min_lat": -60, "max_lat": 60, "min_lon": 120, "max_lon": -60},
-        "Atlantic Ocean": {"min_lat": -60, "max_lat": 70, "min_lon": -80, "max_lon": 20},
-        "Arabian Sea": {"min_lat": 10, "max_lat": 25, "min_lon": 50, "max_lon": 80},
-        "Mediterranean Sea": {"min_lat": 30, "max_lat": 46, "min_lon": -6, "max_lon": 36}
-    }
-    
-    if region_option in region_bounds:
-        bounds = region_bounds[region_option]
-        filters.update(bounds)
-    elif region_option == "Custom coordinates":
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            min_lat = st.number_input("Min Latitude", value=-90.0, min_value=-90.0, max_value=90.0)
-            min_lon = st.number_input("Min Longitude", value=-180.0, min_value=-180.0, max_value=180.0)
-        with col2:
-            max_lat = st.number_input("Max Latitude", value=90.0, min_value=-90.0, max_value=90.0)
-            max_lon = st.number_input("Max Longitude", value=180.0, min_value=-180.0, max_value=180.0)
-        
-        if min_lat < max_lat and min_lon < max_lon:
-            filters.update({
-                "min_lat": min_lat, "max_lat": max_lat,
-                "min_lon": min_lon, "max_lon": max_lon
-            })
-    
-    # Data quality filter
-    quality_filter = st.sidebar.selectbox(
-        "Data Quality",
-        ["All data", "Good quality only", "Questionable data only"],
-        help="Filter by data quality flags"
-    )
-    
-    st.sidebar.markdown('</div>', unsafe_allow_html=True)
-    
-    return filters, quality_filter
-
 def main():
     """Main data explorer interface"""
     
@@ -203,11 +146,7 @@ def main():
     if not initialize_components():
         st.stop()
     
-    # Sidebar filters
-    filters, quality_filter = build_filters_from_sidebar()
-    
     # Display options sidebar
-    st.sidebar.markdown('<div class="filter-section">', unsafe_allow_html=True)
     st.sidebar.subheader("📊 Display Options")
     
     records_per_page = st.sidebar.selectbox(
@@ -218,7 +157,6 @@ def main():
     
     show_coordinates = st.sidebar.checkbox("Show coordinates", value=True)
     show_metadata = st.sidebar.checkbox("Show metadata", value=False)
-    st.sidebar.markdown('</div>', unsafe_allow_html=True)
     
     # Main content tabs
     tab1, tab2, tab3, tab4 = st.tabs(["📋 Profile Browser", "🗺️ Geographic View", "📊 Quick Statistics", "💾 Data Export"])
@@ -230,8 +168,7 @@ def main():
             # Get profiles based on filters
             with st.spinner("Loading profiles..."):
                 profiles_df = st.session_state.db_manager.get_profiles(
-                    limit=records_per_page * 5,  # Get more records for pagination
-                    filters=filters
+                    limit=records_per_page * 5  # Get more records for pagination
                 )
             
             if profiles_df.empty:
@@ -351,8 +288,7 @@ def main():
             # Get profiles for mapping
             with st.spinner("Loading geographic data..."):
                 profiles_df = st.session_state.db_manager.get_profiles(
-                    limit=1000,  # Limit for map performance
-                    filters=filters
+                    limit=1000  # Limit for map performance
                 )
             
             if profiles_df.empty:
@@ -513,34 +449,6 @@ def main():
                             st.markdown('<div class="info-box">', unsafe_allow_html=True)
                             st.write(f"**Longitude range:** {geo['min_longitude']:.2f}°E to {geo['max_longitude']:.2f}°E")
                             st.markdown('</div>', unsafe_allow_html=True)
-                
-                # Filtered statistics
-                if filters:
-                    st.markdown('<h3 class="sub-header">Filtered Data Statistics</h3>', unsafe_allow_html=True)
-                    with st.spinner("Calculating filtered statistics..."):
-                        filtered_profiles = st.session_state.db_manager.get_profiles(
-                            limit=10000, filters=filters
-                        )
-                    
-                    if not filtered_profiles.empty:
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                            st.metric("Filtered Profiles", len(filtered_profiles))
-                            st.markdown('</div>', unsafe_allow_html=True)
-                        with col2:
-                            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                            st.metric("Unique Floats", filtered_profiles['float_id'].nunique())
-                            st.markdown('</div>', unsafe_allow_html=True)
-                        with col3:
-                            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-                            if 'measurement_date' in filtered_profiles.columns:
-                                date_span = (filtered_profiles['measurement_date'].max() - 
-                                           filtered_profiles['measurement_date'].min()).days
-                                st.metric("Date Span (days)", date_span)
-                            st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.info("No statistics available. Please check database connection.")
         
         except Exception as e:
             st.error(f"Error loading statistics: {str(e)}")
@@ -557,11 +465,11 @@ def main():
             
             export_scope = st.selectbox(
                 "Select data scope",
-                ["Current filter results", "All profiles", "Specific float", "Date range"]
+                ["All profiles", "Specific float", "Date range"]
             )
             
             # Additional export parameters based on scope
-            export_filters = filters.copy() if export_scope == "Current filter results" else {}
+            export_filters = {}
             
             if export_scope == "Specific float":
                 float_id = st.text_input("Enter Float ID")
@@ -631,17 +539,6 @@ def main():
         
         except Exception as e:
             st.error(f"Error preparing export: {str(e)}")
-    
-    # Footer with current filter summary
-    if filters:
-        st.sidebar.markdown('<div class="filter-section">', unsafe_allow_html=True)
-        st.sidebar.subheader("Active Filters")
-        for key, value in filters.items():
-            if isinstance(value, datetime):
-                st.sidebar.write(f"**{key}:** {value.strftime('%Y-%m-%d')}")
-            else:
-                st.sidebar.write(f"**{key}:** {value}")
-        st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()

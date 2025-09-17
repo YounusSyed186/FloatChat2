@@ -111,28 +111,37 @@ st.markdown("""
     
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
+        background-color: #f0f2f6;
+        padding: 8px;
+        border-radius: 12px;
     }
     
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
+        height: 60px;
         white-space: pre-wrap;
         background-color: #e3f2fd;
-        border-radius: 8px 8px 0px 0px;
+        border-radius: 12px;
         gap: 8px;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        padding: 15px 20px;
         font-weight: 600;
+        font-size: 16px;
         transition: all 0.3s ease;
+        border: 2px solid transparent;
+        margin: 4px;
     }
     
     .stTabs [data-baseweb="tab"]:hover {
         background-color: #bbdefb;
+        transform: translateY(-3px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     }
     
     .stTabs [aria-selected="true"] {
         background: linear-gradient(135deg, #1a73e8 0%, #0066cc 100%);
         color: white;
         transform: scale(1.05);
+        border: 2px solid #1a73e8;
+        box-shadow: 0 6px 12px rgba(26, 115, 232, 0.3);
     }
     
     .sidebar .sidebar-content {
@@ -216,6 +225,22 @@ st.markdown("""
         from { transform: translateY(-100%) rotate(30deg); }
         to { transform: translateY(100%) rotate(30deg); }
     }
+    
+    /* Filter section styling */
+    .filter-section {
+        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+        padding: 20px;
+        border-radius: 12px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .filter-header {
+        font-size: 1.4rem;
+        color: #1a73e8;
+        margin-bottom: 15px;
+        font-weight: 600;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -223,7 +248,7 @@ st.set_page_config(
     page_title="ARGO Visualizations - Ocean Data Explorer",
     page_icon="🌊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 def initialize_components():
@@ -277,106 +302,10 @@ def load_data_for_visualization():
         logger.error(f"Failed to load data: {str(e)}")
         return None, None, f"Error loading data: {str(e)}"
 
-def create_filter_sidebar():
-    """Create sidebar filters for visualization"""
-    st.sidebar.markdown("<h2 style='text-align: center; color: #1a73e8;' class='floating'>🌊 Data Filters</h2>", unsafe_allow_html=True)
-    
-    # Add some ocean-themed decoration
-    st.sidebar.markdown("---")
-    
+def create_filters():
+    """Create filters for visualization"""
     filters = {}
-    
-    # Float selection with improved UI
-    st.sidebar.markdown("### 🚤 Float Selection")
-    float_filter = st.sidebar.radio(
-        "Float Filter",
-        ["All Floats", "Specific Float"],
-        horizontal=True,
-        help="Filter by specific float or show all"
-    )
-    
-    if float_filter == "Specific Float":
-        float_id = st.sidebar.text_input("Enter Float ID", placeholder="e.g., 7900592")
-        if float_id:
-            filters['float_id'] = float_id
-    
-    # Date range with better UI
-    st.sidebar.markdown("### 📅 Time Period")
-    date_range = st.sidebar.selectbox(
-        "Select Time Range",
-        ["All Time", "Last Month", "Last 6 Months", "Last Year", "Custom"],
-        index=1
-    )
-    
-    if date_range == "Last Month":
-        filters['start_date'] = datetime.now() - timedelta(days=30)
-        filters['end_date'] = datetime.now()
-    elif date_range == "Last 6 Months":
-        filters['start_date'] = datetime.now() - timedelta(days=180)
-        filters['end_date'] = datetime.now()
-    elif date_range == "Last Year":
-        filters['start_date'] = datetime.now() - timedelta(days=365)
-        filters['end_date'] = datetime.now()
-    elif date_range == "Custom":
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            start_date = st.date_input("Start Date", value=datetime.now() - timedelta(days=30))
-        with col2:
-            end_date = st.date_input("End Date", value=datetime.now())
-        
-        if start_date and end_date:
-            filters['start_date'] = datetime.combine(start_date, datetime.min.time())
-            filters['end_date'] = datetime.combine(end_date, datetime.max.time())
-    
-    # Geographic region with better UI
-    st.sidebar.markdown("### 🌍 Geographic Region")
-    region = st.sidebar.selectbox(
-        "Select Ocean Region",
-        ["Global", "Indian Ocean", "Pacific Ocean", "Atlantic Ocean", "Southern Ocean", "Arctic Ocean", "Custom Bounds"]
-    )
-    
-    region_bounds = {
-        "Indian Ocean": {"min_lat": -40, "max_lat": 25, "min_lon": 20, "max_lon": 120},
-        "Pacific Ocean": {"min_lat": -60, "max_lat": 60, "min_lon": 120, "max_lon": -60},
-        "Atlantic Ocean": {"min_lat": -60, "max_lat": 70, "min_lon": -80, "max_lon": 20},
-        "Southern Ocean": {"min_lat": -80, "max_lat": -40, "min_lon": -180, "max_lon": 180},
-        "Arctic Ocean": {"min_lat": 60, "max_lat": 90, "min_lon": -180, "max_lon": 180}
-    }
-    
-    if region in region_bounds:
-        filters.update(region_bounds[region])
-    elif region == "Custom Bounds":
-        st.sidebar.markdown("**Custom Coordinates**")
-        min_lat = st.sidebar.slider("Min Latitude", value=-90.0, min_value=-90.0, max_value=90.0)
-        max_lat = st.sidebar.slider("Max Latitude", value=90.0, min_value=-90.0, max_value=90.0)
-        min_lon = st.sidebar.slider("Min Longitude", value=-180.0, min_value=-180.0, max_value=180.0)
-        max_lon = st.sidebar.slider("Max Longitude", value=180.0, min_value=-180.0, max_value=180.0)
-        
-        if min_lat < max_lat and min_lon < max_lon:
-            filters.update({
-                "min_lat": min_lat, "max_lat": max_lat,
-                "min_lon": min_lon, "max_lon": max_lon
-            })
-    
-    # Data quality
-    st.sidebar.markdown("### 🎯 Data Quality")
-    quality_filter = st.sidebar.radio(
-        "Data Quality Filter",
-        ["All Data", "Good Quality Only"],
-        horizontal=True,
-        help="Filter measurements by quality flags"
-    )
-    
-    # Add some ocean facts or information in the sidebar
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🌊 Did You Know?")
-    ocean_facts = [
-        "The ARGO program has over 3,800 active floats worldwide",
-        "ARGO floats measure temperature, salinity, and pressure from 0-2000m depth",
-        "The data collected helps scientists understand ocean health and climate change"
-    ]
-    fact = np.random.choice(ocean_facts)
-    st.sidebar.info(fact)
+    quality_filter = "All Data"
     
     return filters, quality_filter
 
@@ -428,8 +357,8 @@ def main():
     if not initialize_components():
         st.stop()
     
-    # Create sidebar filters
-    filters, quality_filter = create_filter_sidebar()
+    # Create filters
+    filters, quality_filter = create_filters()
     
     # Load data with animation
     with st.spinner('🌊 Diving into ocean data...'):
@@ -714,8 +643,76 @@ def main():
         except Exception as e:
             st.error(f"Error creating geographic visualizations: {str(e)}")
     
-    # The rest of the tabs would follow similar UI enhancements...
-    # For brevity, I've shown the pattern for the first two tabs
+    with tab3:
+        st.markdown('<h2 class="sub-header">Time Series Analysis</h2>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="info-box">
+            Explore how ocean parameters change over time with interactive time series visualizations.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        try:
+            if profiles_df is not None and not profiles_df.empty:
+                st.info("Time series analysis functionality would be implemented here.")
+                
+                # Example time series plot
+                if 'measurement_date' in profiles_df.columns:
+                    time_series_data = profiles_df.groupby('measurement_date').size().reset_index(name='profile_count')
+                    time_series_fig = px.line(time_series_data, x='measurement_date', y='profile_count', 
+                                            title='Number of Profiles Over Time')
+                    st.plotly_chart(time_series_fig, use_container_width=True)
+            else:
+                st.info("No data available for time series analysis.")
+                
+        except Exception as e:
+            st.error(f"Error creating time series visualizations: {str(e)}")
+    
+    with tab4:
+        st.markdown('<h2 class="sub-header">Parameter Comparison</h2>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="info-box">
+            Compare different ocean parameters and explore their relationships through scatter plots and correlation analysis.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        try:
+            if profiles_df is not None and not measurements_df.empty:
+                st.info("Parameter comparison functionality would be implemented here.")
+                
+                # Example scatter plot
+                if 'temperature' in measurements_df.columns and 'salinity' in measurements_df.columns:
+                    sample_data = measurements_df.sample(min(1000, len(measurements_df)))
+                    scatter_fig = px.scatter(sample_data, x='temperature', y='salinity', 
+                                           title='Temperature vs Salinity Relationship')
+                    st.plotly_chart(scatter_fig, use_container_width=True)
+            else:
+                st.info("No data available for parameter comparison.")
+                
+        except Exception as e:
+            st.error(f"Error creating parameter comparison visualizations: {str(e)}")
+    
+    with tab5:
+        st.markdown('<h2 class="sub-header">Statistical Insights</h2>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="info-box">
+            Gain statistical insights from the oceanographic data with advanced analytics and visualizations.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        try:
+            if profiles_df is not None and not profiles_df.empty:
+                st.info("Statistical insights functionality would be implemented here.")
+                
+                # Example statistical summary
+                if not measurements_df.empty:
+                    numeric_cols = measurements_df.select_dtypes(include=[np.number]).columns
+                    if len(numeric_cols) > 0:
+                        st.dataframe(measurements_df[numeric_cols].describe(), use_container_width=True)
+            else:
+                st.info("No data available for statistical analysis.")
+                
+        except Exception as e:
+            st.error(f"Error creating statistical visualizations: {str(e)}")
     
     # Footer with attribution
     st.markdown("---")
