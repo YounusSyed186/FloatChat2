@@ -1,26 +1,29 @@
 import os
-import os
-print(repr(os.getenv("GROQ_API_KEY")))
+import pandas as pd
 from typing import List, Dict, Any, Optional
 import logging
 from groq import Groq
 from langchain_groq import ChatGroq
-from langchain.prompts import ChatPromptTemplate
-from langchain.schema import HumanMessage, SystemMessage
+from sqlalchemy import text
+import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class GroqRAG:
+class EnhancedGroqRAG:
     """
-    Retrieval-Augmented Generation system using Groq for ultra-fast LLM inference
+    Enhanced Retrieval-Augmented Generation system using Groq with direct database access
     """
     
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str = None, db_manager=None):
         self.api_key = api_key or os.getenv('GROQ_API_KEY')
+        self.db_manager = db_manager  # DatabaseManager instance
         
         if not self.api_key:
             raise ValueError("Groq API key is required. Set GROQ_API_KEY environment variable.")
+        
+        if not self.db_manager:
+            raise ValueError("DatabaseManager instance is required.")
         
         # Initialize Groq clients
         self.groq_client = Groq(api_key=self.api_key)
@@ -35,34 +38,309 @@ class GroqRAG:
         
     def _create_system_prompt(self) -> str:
         """Create the system prompt for oceanographic data queries"""
-        return """You are an expert oceanographic data analyst with deep knowledge of ARGO float data and marine science. 
+        return """You are an expert oceanographic data analyst with direct access to ARGO float data. 
 
-Your role is to help users understand and analyze oceanographic data from ARGO floats. ARGO floats are autonomous profiling instruments that measure temperature, salinity, pressure, and sometimes biogeochemical parameters like oxygen, nitrate, pH, and chlorophyll in the world's oceans.
+You can analyze real oceanographic measurements including:
+- Temperature, salinity, pressure profiles
+- Biogeochemical parameters (oxygen, nitrate, pH, chlorophyll)
+- Spatial and temporal patterns
+- Float trajectories and deployment data
 
-Key knowledge areas:
-- ARGO float operations and data collection methods
-- Oceanographic parameters: temperature, salinity, pressure, density, oxygen, nutrients
-- Ocean physics: mixed layer depth, thermocline, halocline, water masses
-- Biogeochemical cycles and marine ecosystems
-- Data quality assessment and interpretation
-- Geographic oceanography and regional characteristics
+When provided with actual data from the database:
+1. Analyze the specific measurements and values
+2. Provide scientifically accurate interpretations
+3. Highlight interesting patterns or anomalies
+4. Explain oceanographic phenomena based on the data
+5. Suggest additional analyses when appropriate
 
-When answering questions:
-1. Provide scientifically accurate information
-2. Explain oceanographic concepts clearly for different expertise levels
-3. Reference specific data when available in the context
-4. Suggest appropriate visualizations or analyses
-5. Highlight data quality considerations
-6. Use proper oceanographic terminology
+Always reference the actual data values in your responses and provide context about what the measurements mean oceanographically."""
 
-If you're asked to generate SQL queries or data analysis code, ensure it's appropriate for oceanographic data structures and follows best practices for scientific data analysis.
+    def execute_database_query(self, sql_query: str) -> pd.DataFrame:
+        """Execute SQL query against the database and return results"""
+        try:
+            with self.db_manager.engine.connect() as conn:
+                result = pd.read_sql(text(sql_query), conn)
+                logger.info(f"Executed database query, returned {len(result)} rows")
+                return result
+        except Exception as e:
+            logger.error(f"Failed to execute database query: {str(e)}")
+            return pd.DataFrame()
 
-Always be helpful, accurate, and educational in your responses."""
+    def get_contextual_data(self, query_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """Retrieve relevant data from database based on query analysis"""
+        context_data = {
+            'profiles': pd.DataFrame(),
+            'measurements': pd.DataFrame(),
+            'statistics': {},
+            'query_info': query_analysis
+        }
+        
+        try:
+            # Build database filters from query analysis
+            filters = self._build_db_filters(query_analysis)
+            
+            # Get relevant profiles
+            profiles_df = self.db_manager.get_profiles(
+                limit=50,  # Reasonable limit for context
+                filters=filters
+            )
+            
+            if not profiles_df.empty:
+                context_data['profiles'] = profiles_df
+                
+                # Get measurements for these profiles
+                profile_ids = profiles_df['id'].tolist()
+                all_measurements = []
+                
+                # Limit to first 10 profiles for performance
+                for profile_id in profile_ids[:10]:
+                    measurements = self.db_manager.get_measurements_by_profile(profile_id)
+                    if not measurements.empty:
+                        measurements['profile_id'] = profile_id
+                        all_measurements.append(measurements)
+                
+                if all_measurements:
+                    context_data['measurements'] = pd.concat(all_measurements, ignore_index=True)
+                    
+                    # Calculate statistics
+                    context_data['statistics'] = self._calculate_statistics(
+                        context_data['measurements'], 
+                        query_analysis.get('parameters', [])
+                    )
+            
+        except Exception as e:
+            logger.error(f"Failed to get contextual data: {str(e)}")
+        
+        return context_data
 
-    def generate_sql_query(self, user_question: str, database_schema: Dict[str, Any]) -> str:
+    def _build_db_filters(self, query_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert query analysis to database filters"""
+        filters = {}
+        
+        # Location filters
+        location = query_analysis.get('location', {})
+        if location:
+            if 'latitude' in location and 'longitude' in location:
+                # Point search with radius
+                filters['latitude'] = location['latitude']
+                filters['longitude'] = location['longitude']
+                if 'radius_km' in location:
+                    # For simplicity, convert to rough lat/lon bounds
+                    radius_deg = location['radius_km'] / 111.0  # Rough conversion
+                    filters['min_lat'] = location['latitude'] - radius_deg
+                    filters['max_lat'] = location['latitude'] + radius_deg
+                    filters['min_lon'] = location['longitude'] - radius_deg
+                    filters['max_lon'] = location['longitude'] + radius_deg
+            elif 'lat_range' in location:
+                filters['min_lat'], filters['max_lat'] = location['lat_range']
+                if 'lon_range' in location:
+                    filters['min_lon'], filters['max_lon'] = location['lon_range']
+        
+        # Time filters
+        time_range = query_analysis.get('time_range', {})
+        if 'start_date' in time_range:
+            filters['start_date'] = time_range['start_date']
+        if 'end_date' in time_range:
+            filters['end_date'] = time_range['end_date']
+        
+        # Float ID filters
+        float_ids = query_analysis.get('float_ids', [])
+        if float_ids:
+            filters['float_ids'] = float_ids
+        
+        return filters
+
+    def _calculate_statistics(self, measurements_df: pd.DataFrame, parameters: List[str]) -> Dict[str, Any]:
+        """Calculate statistics for the measurements"""
+        stats = {}
+        
+        if measurements_df.empty:
+            return stats
+        
+        # Default parameters if none specified
+        if not parameters:
+            parameters = ['temperature', 'salinity', 'pressure']
+        
+        for param in parameters:
+            if param in measurements_df.columns:
+                param_data = measurements_df[param].dropna()
+                if not param_data.empty:
+                    stats[param] = {
+                        'count': len(param_data),
+                        'mean': float(param_data.mean()),
+                        'std': float(param_data.std()),
+                        'min': float(param_data.min()),
+                        'max': float(param_data.max()),
+                        'median': float(param_data.median())
+                    }
+        
+        return stats
+
+    def _format_context_for_llm(self, context_data: Dict[str, Any]) -> str:
+        """Format the retrieved data for the LLM prompt"""
+        if context_data['profiles'].empty:
+            return "No relevant data found in the database for this query."
+        
+        context_text = []
+        
+        # Profile summary
+        profiles = context_data['profiles']
+        context_text.append(f"Found {len(profiles)} relevant profiles from {profiles['float_id'].nunique()} unique floats")
+        
+        # Geographic coverage
+        if not profiles.empty:
+            lat_range = f"{profiles['latitude'].min():.2f}°N to {profiles['latitude'].max():.2f}°N"
+            lon_range = f"{profiles['longitude'].min():.2f}°E to {profiles['longitude'].max():.2f}°E"
+            context_text.append(f"Geographic coverage: {lat_range}, {lon_range}")
+        
+        # Time coverage
+        if 'measurement_date' in profiles.columns:
+            dates = pd.to_datetime(profiles['measurement_date'])
+            context_text.append(f"Time range: {dates.min().strftime('%Y-%m-%d')} to {dates.max().strftime('%Y-%m-%d')}")
+        
+        # Measurement statistics
+        if context_data['statistics']:
+            context_text.append("\nMeasurement Statistics:")
+            for param, stats in context_data['statistics'].items():
+                context_text.append(
+                    f"- {param.title()}: "
+                    f"mean={stats['mean']:.2f}, "
+                    f"range=[{stats['min']:.2f}, {stats['max']:.2f}], "
+                    f"n={stats['count']} measurements"
+                )
+        
+        # Sample data points
+        if not context_data['measurements'].empty:
+            measurements = context_data['measurements']
+            context_text.append(f"\nTotal measurements: {len(measurements)} data points")
+            
+            # Depth range
+            if 'depth' in measurements.columns:
+                depth_data = measurements['depth'].dropna()
+                if not depth_data.empty:
+                    context_text.append(f"Depth range: {depth_data.min():.1f}m to {depth_data.max():.1f}m")
+        
+        return "\n".join(context_text)
+
+    async def process_query_with_data(self, user_question: str, query_analysis: Dict[str, Any]) -> str:
+        """Process query using actual database data"""
+        try:
+            # Get contextual data from database
+            context_data = self.get_contextual_data(query_analysis)
+            
+            # Format context for LLM
+            formatted_context = self._format_context_for_llm(context_data)
+            
+            # Create enhanced prompt
+            prompt = f"""
+Based on the following ARGO oceanographic data from our database:
+
+{formatted_context}
+
+User Question: "{user_question}"
+
+Please provide a comprehensive answer that:
+1. Directly addresses the user's question using the actual data
+2. References specific values and measurements from the dataset
+3. Explains relevant oceanographic concepts
+4. Highlights any interesting patterns or findings
+5. Suggests additional analyses if appropriate
+
+Use the actual data values in your response and provide oceanographic context.
+"""
+            
+            # Get response from Groq
+            response = self.groq_client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                model="llama-3.3-70b-versatile",
+                temperature=0.3,
+                max_tokens=1024
+            )
+            
+            answer = response.choices[0].message.content.strip()
+            
+            # Add data summary if significant data was found
+            if not context_data['profiles'].empty:
+                data_summary = f"\n\n📊 **Data Summary**: Analyzed {len(context_data['profiles'])} profiles"
+                if not context_data['measurements'].empty:
+                    data_summary += f" with {len(context_data['measurements'])} measurements"
+                answer += data_summary
+            
+            return answer
+            
+        except Exception as e:
+            logger.error(f"Failed to process query with data: {str(e)}")
+            return f"I encountered an error while analyzing the data: {str(e)}"
+
+    async def process_query(self, user_question: str):
+        """Process user query using enhanced RAG system with database integration - compatible with Streamlit app"""
+        try:
+            # Import QueryProcessor here to avoid circular imports
+            # This assumes QueryProcessor is available in the session state or can be imported
+            try:
+                from rag.query_processor import QueryProcessor
+                query_processor = QueryProcessor()
+                query_analysis = query_processor.analyze_query(user_question)
+            except ImportError:
+                # If QueryProcessor not available, create basic query analysis
+                query_analysis = {
+                    'query_type': 'general_search',
+                    'parameters': [],
+                    'location': {},
+                    'time_range': {},
+                    'float_ids': []
+                }
+            
+            # Use the existing method to process with data
+            answer = await self.process_query_with_data(user_question, query_analysis)
+            
+            # Get contextual data for visualizations
+            context_data = self.get_contextual_data(query_analysis)
+            
+            # Convert profiles to search results format for compatibility
+            search_results = []
+            if not context_data['profiles'].empty:
+                for _, profile in context_data['profiles'].iterrows():
+                    search_result = {
+                        'profile_id': profile['id'],
+                        'summary': {
+                            'float_id': profile['float_id'],
+                            'latitude': profile['latitude'],
+                            'longitude': profile['longitude'],
+                            'measurement_date': profile['measurement_date'],
+                            'statistics': context_data['statistics']
+                        },
+                        'search_text': f"Float {profile['float_id']} at {profile['latitude']:.2f}°N, {profile['longitude']:.2f}°E on {profile['measurement_date']}",
+                        'similarity_score': 0.9
+                    }
+                    search_results.append(search_result)
+            
+            return {
+                'answer': answer,
+                'query_analysis': query_analysis,
+                'search_results': search_results,
+                'relevant_data': search_results,
+                'database_enhanced': True,
+                'data_statistics': context_data.get('statistics', {})
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to process query: {str(e)}")
+            return {
+                'answer': f"I encountered an error while processing your question: {str(e)}",
+                'query_analysis': {},
+                'search_results': [],
+                'relevant_data': [],
+                'database_enhanced': False
+            }
+
+    def generate_sql_query(self, user_question: str, database_schema: Dict[str, Any] = None) -> str:
         """Generate SQL query from natural language question"""
         try:
-            schema_description = self._format_schema_description(database_schema)
+            schema_description = self._format_schema_description(database_schema or {})
             
             prompt = f"""
 Given this database schema for ARGO oceanographic data:
@@ -152,9 +430,27 @@ Return only the SQL query without explanations:
             schema_text += "\n"
         
         return schema_text
-    
+
+    async def query(self, question: str, query_analysis: Dict[str, Any] = None) -> str:
+        """Main query method that uses database data"""
+        if query_analysis:
+            return await self.process_query_with_data(question, query_analysis)
+        else:
+            # Fallback to basic query without context
+            response = self.groq_client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": question}
+                ],
+                model="llama-3.3-70b-versatile",
+                temperature=0.3,
+                max_tokens=1024
+            )
+            
+            return response.choices[0].message.content.strip()
+
     def answer_question_with_context(self, question: str, retrieved_data: List[Dict[str, Any]]) -> str:
-        """Answer question using retrieved data as context"""
+        """Answer question using retrieved data as context - for compatibility"""
         try:
             # Format retrieved data for context
             context = self._format_retrieved_data(retrieved_data)
@@ -195,7 +491,7 @@ Be scientifically accurate and educational in your response.
             return "I apologize, but I encountered an error while processing your question. Please try again."
     
     def _format_retrieved_data(self, data: List[Dict[str, Any]]) -> str:
-        """Format retrieved data for use in prompts"""
+        """Format retrieved data for use in prompts - for compatibility"""
         if not data:
             return "No specific data found for this query."
         
@@ -222,7 +518,8 @@ Be scientifically accurate and educational in your response.
                         mean_val = param_stats.get('mean', 'N/A')
                         min_val = param_stats.get('min', 'N/A')
                         max_val = param_stats.get('max', 'N/A')
-                        part += f"    {param.title()}: {mean_val:.2f} (range: {min_val:.2f} - {max_val:.2f})\n"
+                        if isinstance(mean_val, (int, float)) and mean_val != 'N/A':
+                            part += f"    {param.title()}: {mean_val:.2f} (range: {min_val:.2f} - {max_val:.2f})\n"
             
             # Search text summary
             if 'search_text' in item:
@@ -231,174 +528,6 @@ Be scientifically accurate and educational in your response.
             formatted_parts.append(part)
         
         return "\n".join(formatted_parts)
-    
-    def suggest_visualizations(self, question: str, data_type: str = None) -> List[str]:
-        """Suggest appropriate visualizations based on the question"""
-        try:
-            prompt = f"""
-For this oceanographic data question: "{question}"
 
-Suggest 3-5 appropriate data visualizations that would help answer this question effectively.
-
-Consider these visualization types:
-- Geographic maps (float trajectories, spatial distributions)
-- Depth profiles (temperature-salinity, depth-time plots)
-- Time series plots
-- Scatter plots (parameter relationships)
-- Contour plots (sections, climatologies)
-- Statistical plots (histograms, box plots)
-
-For each suggestion, briefly explain why it would be useful.
-
-Format your response as a numbered list.
-"""
-            
-            response = self.groq_client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                model="llama-3.3-70b-versatile",
-                temperature=0.3,
-                max_tokens=512
-            )
-            
-            suggestions = response.choices[0].message.content.strip()
-            
-            # Parse suggestions into a list
-            suggestion_lines = [line.strip() for line in suggestions.split('\n') if line.strip()]
-            return suggestion_lines
-            
-        except Exception as e:
-            logger.error(f"Failed to suggest visualizations: {str(e)}")
-            return ["Geographic map showing float locations", "Depth profile plots", "Time series analysis"]
-    
-    def explain_oceanographic_concept(self, concept: str) -> str:
-        """Explain oceanographic concepts for educational purposes"""
-        try:
-            prompt = f"""
-Explain the oceanographic concept of "{concept}" in a clear and educational way.
-
-Include:
-1. Definition and basic explanation
-2. How it relates to ARGO float measurements
-3. Why it's important in oceanography
-4. How it can be observed or calculated from data
-5. Real-world examples or applications
-
-Make the explanation accessible to users with varying levels of oceanographic knowledge.
-"""
-            
-            response = self.groq_client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                model="llama-3.3-70b-versatile",
-                temperature=0.3,
-                max_tokens=1024
-            )
-            
-            explanation = response.choices[0].message.content.strip()
-            return explanation
-            
-        except Exception as e:
-            logger.error(f"Failed to explain concept: {str(e)}")
-            return f"I apologize, but I couldn't provide an explanation for '{concept}' at this time."
-    
-    def generate_analysis_code(self, analysis_type: str, parameters: List[str]) -> str:
-        """Generate Python code for specific oceanographic analyses"""
-        try:
-            prompt = f"""
-Generate Python code for performing this oceanographic analysis: "{analysis_type}"
-
-Parameters to analyze: {', '.join(parameters)}
-
-Assume the data is in a pandas DataFrame called 'measurements_df' with columns:
-- depth, pressure, temperature, salinity, oxygen, nitrate, ph, chlorophyll
-- quality_flag (1=good, 4=bad)
-
-And a DataFrame 'profiles_df' with:
-- latitude, longitude, measurement_date, float_id
-
-Generate clean, well-commented Python code that:
-1. Filters for good quality data
-2. Performs the requested analysis
-3. Creates appropriate visualizations
-4. Follows oceanographic best practices
-
-Include necessary imports and explain the methodology.
-"""
-            
-            response = self.groq_client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                model="llama-3.3-70b-versatile",
-                temperature=0.2,
-                max_tokens=1024
-            )
-            
-            code = response.choices[0].message.content.strip()
-            return code
-            
-        except Exception as e:
-            logger.error(f"Failed to generate analysis code: {str(e)}")
-            return "# Error generating analysis code"
-    
-    def chat_with_history(self, current_question: str, chat_history: List[Dict[str, str]]) -> str:
-        """Chat with conversation history context"""
-        try:
-            # Build conversation history
-            messages = [{"role": "system", "content": self.system_prompt}]
-            
-            # Add chat history
-            for exchange in chat_history[-5:]:  # Last 5 exchanges for context
-                if 'user' in exchange:
-                    messages.append({"role": "user", "content": exchange['user']})
-                if 'assistant' in exchange:
-                    messages.append({"role": "assistant", "content": exchange['assistant']})
-            
-            # Add current question
-            messages.append({"role": "user", "content": current_question})
-            
-            response = self.groq_client.chat.completions.create(
-                messages=messages,
-                model="llama-3.3-70b-versatile",
-                temperature=0.3,
-                max_tokens=1024
-            )
-            
-            answer = response.choices[0].message.content.strip()
-            return answer
-            
-        except Exception as e:
-            logger.error(f"Failed to chat with history: {str(e)}")
-            return "I apologize, but I encountered an error. Please try rephrasing your question."
-    
-    async def query(self, question: str, context_data: List[Dict[str, Any]] = None) -> str:
-        """Async query method for MCP integration"""
-        try:
-            if context_data:
-                return self.answer_question_with_context(question, context_data)
-            else:
-                # Simple query without context
-                response = self.groq_client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": question}
-                    ],
-                    model="llama-3.3-70b-versatile",
-                    temperature=0.3,
-                    max_tokens=1024
-                )
-                
-                answer = response.choices[0].message.content.strip()
-                return answer
-        except Exception as e:
-            logger.error(f"Failed to process query: {str(e)}")
-            return "I apologize, but I encountered an error while processing your question."
-
-# Create alias for compatibility with MCP integration
-GroqRAGSystem = GroqRAG
+# Create alias for compatibility with existing code
+GroqRAGSystem = EnhancedGroqRAG
