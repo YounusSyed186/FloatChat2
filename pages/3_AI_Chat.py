@@ -31,6 +31,31 @@ st.markdown("""
         margin-bottom: 1rem;
         font-weight: 700;
     }
+    .header-container {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 2rem;
+    }
+    .settings-button {
+        position: absolute;
+        top: 0;
+        right: 0;
+        background-color: #f8f9fa;
+        border: 1px solid #dadce0;
+        border-radius: 20px;
+        padding: 8px 16px;
+        cursor: pointer;
+        font-size: 14px;
+        color: #5f6368;
+        transition: all 0.2s ease;
+    }
+    .settings-button:hover {
+        background-color: #e8f0fe;
+        border-color: #1a73e8;
+        color: #1a73e8;
+    }
     .chat-container {
         background-color: #f8f9fa;
         border-radius: 10px;
@@ -133,6 +158,26 @@ st.markdown("""
     .message-content {
         flex: 1;
     }
+    .settings-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+    .settings-content {
+        background-color: white;
+        border-radius: 10px;
+        padding: 20px;
+        max-width: 500px;
+        width: 90%;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -154,16 +199,6 @@ def initialize_components():
         if 'vector_store' not in st.session_state:
             st.session_state.vector_store = FAISSManager()
         
-        if 'rag_system' not in st.session_state:
-            api_key = os.getenv('GROQ_API_KEY')
-            if not api_key:
-                st.error("Groq API key not found. Please set GROQ_API_KEY environment variable.")
-                return False
-            # Initialize basic Groq RAG system
-            groq_rag = GroqRAGSystem(api_key)
-            # Initialize MCP Enhanced RAG system
-            st.session_state.rag_system = MCPEnhancedRAG(groq_rag)
-        
         if 'query_processor' not in st.session_state:
             st.session_state.query_processor = QueryProcessor()
         
@@ -177,9 +212,46 @@ def initialize_components():
         if 'chat_history' not in st.session_state:
             st.session_state.chat_history = []
         
+        # Initialize settings modal state
+        if 'show_settings' not in st.session_state:
+            st.session_state.show_settings = False
+        
+        # Initialize RAG system - this should be done AFTER db_manager is created
+        if 'rag_system' not in st.session_state:
+            api_key = os.getenv('GROQ_API_KEY')
+            if not api_key:
+                st.error("Groq API key not found. Please set GROQ_API_KEY environment variable.")
+                return False
+            
+            # Try to use enhanced database-connected version first
+            try:
+                from rag.groq_rag import EnhancedGroqRAG
+                # Pass the already initialized db_manager
+                st.session_state.rag_system = EnhancedGroqRAG(
+                    api_key=api_key, 
+                    db_manager=st.session_state.db_manager  # This should now exist
+                )
+                st.session_state.using_enhanced_rag = True
+                logger.info("Using Enhanced GroqRAG with database integration")
+            except ImportError as ie:
+                # Enhanced system not available, use fallback
+                logger.warning(f"Enhanced GroqRAG not available: {ie}")
+                groq_rag = GroqRAGSystem(api_key)
+                st.session_state.rag_system = MCPEnhancedRAG(groq_rag)
+                st.session_state.using_enhanced_rag = False
+                logger.info("Using original MCP Enhanced RAG system")
+            except Exception as e:
+                # Other error with enhanced system, use fallback
+                logger.error(f"Failed to initialize Enhanced GroqRAG: {e}")
+                groq_rag = GroqRAGSystem(api_key)
+                st.session_state.rag_system = MCPEnhancedRAG(groq_rag)
+                st.session_state.using_enhanced_rag = False
+                logger.info("Using original MCP Enhanced RAG system as fallback")
+        
         return True
     except Exception as e:
         st.error(f"Failed to initialize components: {str(e)}")
+        logger.error(f"Component initialization error: {e}")
         return False
 
 async def process_query(user_question):
@@ -357,11 +429,88 @@ def display_chat_message(role, content, timestamp=None):
         </div>
         """, unsafe_allow_html=True)
 
+def show_settings_modal():
+    """Display settings modal"""
+    with st.container():
+        st.markdown("### ⚙️ Chat Settings")
+        
+        # Chat statistics
+        if st.session_state.chat_history:
+            user_messages = len([msg for msg in st.session_state.chat_history if msg['role'] == 'user'])
+            ai_messages = len([msg for msg in st.session_state.chat_history if msg['role'] == 'assistant'])
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Your Messages", user_messages)
+            with col2:
+                st.metric("AI Responses", ai_messages)
+        else:
+            st.info("No chat history yet. Start by asking a question!")
+        
+        st.divider()
+        
+        # Chat management buttons
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🗑️ Clear Chat History", type="secondary", use_container_width=True):
+                st.session_state.chat_history = []
+                st.success("Chat history cleared!")
+                st.rerun()
+        
+        with col2:
+            if st.button("💾 Export Chat", type="secondary", use_container_width=True):
+                if st.session_state.chat_history:
+                    chat_export = []
+                    for msg in st.session_state.chat_history:
+                        chat_export.append(f"**{msg['role'].title()}** ({msg['timestamp'].strftime('%Y-%m-%d %H:%M:%S')})")
+                        chat_export.append(msg['content'])
+                        chat_export.append("")
+                    
+                    chat_text = "\n".join(chat_export)
+                    st.download_button(
+                        "📥 Download Chat History",
+                        chat_text,
+                        file_name=f"argo_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("No chat history to export.")
+        
+        st.divider()
+        
+        # Close button
+        if st.button("✖️ Close Settings", type="primary", use_container_width=True):
+            st.session_state.show_settings = False
+            st.rerun()
+
 def main():
     """Main AI chat interface"""
     
-    # Header with ocean theme
-    st.markdown('<h1 class="main-header">🤖 AI Assistant</h1>', unsafe_allow_html=True)
+    # Initialize components
+    if not initialize_components():
+        st.stop()
+    
+    # Header with settings button
+    st.markdown("""
+    <div class="header-container">
+        <h1 class="main-header">🤖 AI Assistant</h1>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Settings button in top right
+    col1, col2, col3 = st.columns([6, 1, 1])
+    with col3:
+        if st.button("⚙️ Settings", key="settings_btn"):
+            st.session_state.show_settings = True
+            st.rerun()
+    
+    # Show settings modal if toggled
+    if st.session_state.show_settings:
+        with st.expander("⚙️ Settings", expanded=True):
+            show_settings_modal()
+    
     st.markdown("""
     <div style='text-align: center; margin-bottom: 2rem;'>
         <p style='font-size: 1.2rem; color: #5f6368;'>
@@ -369,10 +518,6 @@ def main():
         </p>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Initialize components
-    if not initialize_components():
-        st.stop()
     
     # Main chat container
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
@@ -591,72 +736,7 @@ def main():
         - "before and after"
         """)
     
-    # Chat management
-    st.subheader("🔧 Chat Management")
     
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("Clear Chat", type="secondary", use_container_width=True):
-            st.session_state.chat_history = []
-            st.rerun()
-    
-    with col2:
-        if st.button("Export Chat", type="secondary", use_container_width=True):
-            if st.session_state.chat_history:
-                chat_export = []
-                for msg in st.session_state.chat_history:
-                    chat_export.append(f"**{msg['role'].title()}** ({msg['timestamp'].strftime('%Y-%m-%d %H:%M:%S')})")
-                    chat_export.append(msg['content'])
-                    chat_export.append("")
-                
-                chat_text = "\n".join(chat_export)
-                st.download_button(
-                    "Download Chat History",
-                    chat_text,
-                    file_name=f"argo_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain",
-                    use_container_width=True
-                )
-    
-    with col3:
-        # Show chat statistics
-        if st.session_state.chat_history:
-            user_messages = len([msg for msg in st.session_state.chat_history if msg['role'] == 'user'])
-            st.metric("Messages", f"{user_messages} questions")
-    
-    # Educational section
-    with st.expander("🎓 Learn About ARGO Data"):
-        st.markdown("""
-        ### What is ARGO?
-        
-        ARGO is a global network of autonomous profiling floats that measure temperature, salinity, and pressure 
-        in the world's oceans. Some floats also measure biogeochemical parameters.
-        
-        ### Key Parameters:
-        
-        - **Temperature**: Sea water temperature in degrees Celsius
-        - **Salinity**: Practical salinity in PSU (Practical Salinity Units)
-        - **Pressure**: Water pressure in decibars (approximates depth in meters)
-        - **Oxygen**: Dissolved oxygen in micromoles per kilogram
-        - **Nitrate**: Nitrate concentration in micromoles per kilogram
-        - **pH**: Acidity/alkalinity of seawater
-        - **Chlorophyll**: Chlorophyll-a concentration indicating phytoplankton
-        
-        ### Oceanographic Concepts:
-        
-        - **Mixed Layer Depth**: Depth of the well-mixed upper ocean layer
-        - **Thermocline**: Layer where temperature changes rapidly with depth
-        - **Water Masses**: Bodies of water with distinct temperature and salinity characteristics
-        - **BGC Parameters**: Biogeochemical measurements related to ocean biology and chemistry
-        
-        ### Ask Questions Like:
-        
-        - "Explain mixed layer depth"
-        - "What causes ocean acidification?"
-        - "How do temperature and salinity relate?"
-        - "What are water masses?"
-        """)
 
 if __name__ == "__main__":
     main()

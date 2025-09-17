@@ -395,70 +395,6 @@ def main_data_ingestion():
             </div>
         </div>
         """, unsafe_allow_html=True)
-        
-        # System status
-        st.markdown("""
-        <div style="background: white; padding: 1.5rem; border-radius: 15px; border: 1px solid #e9ecef; margin-top: 1rem;">
-            <h4 style="color: #333; margin-top: 0;">🖥️ System Status</h4>
-            <div style="margin: 0.5rem 0;">
-                <span>Database: </span>
-                <span style="color: #28a745; font-weight: bold;">Online</span>
-            </div>
-            <div style="margin: 0.5rem 0;">
-                <span>Storage: </span>
-                <div style="background: #e9ecef; height: 8px; border-radius: 4px; margin: 0.2rem 0;">
-                    <div style="background: linear-gradient(90deg, #667eea, #764ba2); height: 100%; width: 87%; border-radius: 4px;"></div>
-                </div>
-                <span style="font-size: 0.9em; color: #666;">87% used</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-# ----------------- SIDEBAR -----------------
-def render_sidebar():
-    st.sidebar.title("🌊 ARGO Platform")
-    st.sidebar.markdown("---")
-    
-    # Navigation
-    menu = st.sidebar.radio(
-        "Navigation",
-        ["Dashboard", "Data Ingestion", "Visualization", "AI Models", "Settings"],
-        index=1  # Default to Data Ingestion
-    )
-    
-    st.sidebar.markdown("---")
-    
-    # User info
-    st.sidebar.markdown("👤 **Dr. Marine Researcher**")
-    st.sidebar.markdown("🏛️ Oceanographic Institute")
-    st.sidebar.markdown("📧 researcher@ocean.org")
-    
-    st.sidebar.markdown("---")
-    
-    # Quick actions
-    st.sidebar.subheader("⚡ Quick Actions")
-    if st.sidebar.button("📊 View Dashboard", use_container_width=True):
-        st.session_state.menu = "Dashboard"
-        st.rerun()
-    
-    if st.sidebar.button("🔄 Process New Files", use_container_width=True):
-        st.rerun()
-    
-    st.sidebar.markdown("---")
-    
-    # Recent activity
-    st.sidebar.subheader("📅 Recent Activity")
-    activities = [
-        "Uploaded pacific_data_2024.nc",
-        "Processed atlantic_profile_123.nc",
-        "Generated summary report",
-        "Quality check completed"
-    ]
-    
-    for activity in activities[:3]:
-        st.sidebar.markdown(f"• {activity}")
-
-    return menu
 
 # ----------------- APP ENTRY -----------------
 def main():
@@ -466,11 +402,6 @@ def main():
     if 'menu' not in st.session_state:
         st.session_state.menu = "Data Ingestion"
     
-    # Render sidebar and get selected menu
-    selected_menu = render_sidebar()
-    
-    # Update session state
-    st.session_state.menu = selected_menu
     
     # Render appropriate page
     if st.session_state.menu == "Data Ingestion":

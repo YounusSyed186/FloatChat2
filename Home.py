@@ -11,14 +11,14 @@ from vector_store.faiss_manager import FAISSManager
 
 # Page configuration
 st.set_page_config(
-    page_title="ARGO Oceanographic Platform",
+    page_title="FloatChat",
     page_icon="🌊",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': 'https://github.com/argo/argo-platform',
         'Report a bug': 'https://github.com/argo/argo-platform/issues',
-        'About': 'ARGO Oceanographic Data Analysis Platform - AI-powered insights into ocean data'
+        'About': 'AI-Powered Conversational Interface for ARGO Ocean Data Discovery and Visualization'
     }
 )
 
@@ -176,6 +176,16 @@ def add_custom_css():
         background: linear-gradient(135deg, var(--ocean-blue) 0%, var(--deep-blue) 100%);
         border-radius: 8px;
     }
+
+    /* Style for the clickable cards */
+    .clickable-card {
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .clickable-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -193,8 +203,8 @@ def main():
     with st.sidebar:
         st.markdown("""
         <div style="text-align: center; padding: 1rem 0;">
-            <h1 style="color: #1E88E5; margin: 0;">🌊 ARGO</h1>
-            <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9rem;">Oceanographic Platform</p>
+            <h1 style="color: #1E88E5; margin: 0;">🌊 FloatChat</h1>
+            <p style="color: #666; margin: 0.5rem 0 0 0; font-size: 0.9rem;">Interactive Oceanographic Platform</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -221,11 +231,10 @@ def main():
         st.markdown("""
         ### 🧭 Navigation Guide
         
-        **📁 Data Ingestion** - Upload ARGO files  
-        **🔍 Data Explorer** - Browse datasets  
-        **🤖 AI Chat** - Natural language queries  
-        **📊 Visualizations** - Interactive plots  
-        **🛠️ MCP Tools** - Advanced analysis  
+        **📁 Data Ingestion** - Upload ARGO files 
+        **🔍 Data Explorer** - Browse datasets 
+        **🤖 AI Chat** - Natural language queries 
+        **📊 Visualizations** - Interactive plots 
         
         ---
         
@@ -235,8 +244,8 @@ def main():
     # Hero section
     st.markdown("""
     <div class="hero-container">
-        <div class="hero-title">🌊 ARGO Oceanographic Platform</div>
-        <div class="hero-subtitle">AI-Powered Ocean Data Analysis & Visualization</div>
+        <div class="hero-title">🌊 FloatChat</div>
+        <div class="hero-subtitle">AI-Powered Conversational Interface for ARGO Ocean Data Discovery and Visualization</div>
     </div>
     """, unsafe_allow_html=True)
     
@@ -276,136 +285,12 @@ def main():
         </div>
         """, unsafe_allow_html=True)
     
-    # Modern metrics dashboard
-    st.markdown("### 📈 System Overview")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        db_connected = st.session_state.get('db_manager') is not None
-        db_status = "🟢 Connected" if db_connected else "🔴 Disconnected"
-        db_delta = "Operational" if db_connected else "Check connection"
-        st.metric("Database", db_status, delta=db_delta, delta_color="normal" if db_connected else "inverse")
-    
-    with col2:
-        vector_ready = st.session_state.get('vector_store') is not None
-        vector_status = "🟢 Ready" if vector_ready else "🟡 Loading"
-        vector_delta = "FAISS Loaded" if vector_ready else "Initializing"
-        st.metric("Vector Store", vector_status, delta=vector_delta, delta_color="normal" if vector_ready else "off")
-    
-    with col3:
-        try:
-            db_manager = st.session_state.get('db_manager')
-            if db_manager:
-                count = db_manager.get_total_records()
-                formatted_count = f"{count:,}" if count > 0 else "0"
-                delta_text = "Profiles loaded" if count > 0 else "No data yet"
-                st.metric("ARGO Profiles", formatted_count, delta=delta_text, delta_color="normal" if count > 0 else "off")
-            else:
-                st.metric("ARGO Profiles", "0", delta="Database offline", delta_color="inverse")
-        except Exception:
-            st.metric("ARGO Profiles", "N/A", delta="Error loading", delta_color="inverse")
-    
-    with col4:
-        ai_ready = bool(os.getenv('GROQ_API_KEY'))
-        ai_status = "🤖 Ready" if ai_ready else "⚠️ Setup needed"
-        ai_delta = "Groq Connected" if ai_ready else "API key required"
-        st.metric("AI Engine", ai_status, delta=ai_delta, delta_color="normal" if ai_ready else "inverse")
     
     st.markdown("---")
     
-    # Interactive Quick Start Guide
-    st.markdown("### 🎯 Quick Start Workflow")
+
     
-    # Progress indicator
-    progress_steps = [
-        ("Upload Data", "📁", "Data Ingestion", "Upload your ARGO NetCDF files"),
-        ("Explore", "🔍", "Data Explorer", "Browse and analyze datasets"),
-        ("Chat", "🤖", "AI Assistant", "Ask questions naturally"),
-        ("Visualize", "📊", "Charts & Maps", "Create stunning visualizations")
-    ]
-    
-    # Create workflow steps
-    step_cols = st.columns(len(progress_steps))
-    
-    for i, (short_name, icon, full_name, description) in enumerate(progress_steps):
-        with step_cols[i]:
-            st.markdown(
-                f"""
-                <div style="
-                    text-align: center;
-                    padding: 1.5rem;
-                    background: linear-gradient(135deg, #F8FAFC 0%, #E2E8F0 100%);
-                    border-radius: 12px;
-                    border: 2px solid #CBD5E0;
-                    margin-bottom: 1rem;
-                    transition: all 0.3s ease;
-                    cursor: pointer;
-                " onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 25px rgba(0,0,0,0.15)'" 
-                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
-                    <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">{icon}</div>
-                    <div style="font-weight: 600; color: #1E88E5; margin-bottom: 0.25rem;">{short_name}</div>
-                    <div style="font-size: 0.75rem; color: #64748B; margin-bottom: 0.5rem;">{full_name}</div>
-                    <div style="font-size: 0.7rem; color: #64748B; line-height: 1.2;">{description}</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-    
-    # Action buttons
-    st.markdown("### 🎯 Ready to Start?")
-    
-    button_col1, button_col2, button_col3 = st.columns(3)
-    
-    with button_col1:
-        if st.button("📁 Upload Data", type="primary", width=True):
-            st.switch_page("pages/1_Data_Ingestion.py")
-    
-    with button_col2:
-        if st.button("🤖 Start Chatting", type="secondary", width=True):
-            st.switch_page("pages/3_AI_Chat.py")
-    
-    with button_col3:
-        if st.button("🛠️ MCP Tools", type="secondary", width=True):
-            st.switch_page("pages/5_MCP_Tools.py")
-    
-    st.markdown("---")
-    
-    # System information in an elegant expandable section
-    with st.expander("⚙️ System Configuration & Health", expanded=False):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**🔧 Configuration Status**")
-            
-            config_items = [
-                ("Groq API Key", os.getenv('GROQ_API_KEY') is not None),
-                ("Database Connection", os.getenv('DATABASE_URL') or os.getenv('PGHOST')),
-                ("Vector Store", st.session_state.get('vector_store') is not None),
-                ("MCP Integration", True)  # MCP is now integrated
-            ]
-            
-            for item, status in config_items:
-                status_icon = "🟢" if status else "🔴"
-                status_text = "Ready" if status else "Needs Setup"
-                st.markdown(f"{status_icon} **{item}**: {status_text}")
-        
-        with col2:
-            st.markdown("**🗄️ Database Details**")
-            st.markdown(f"**Host**: {os.getenv('PGHOST', 'Not configured')}")
-            st.markdown(f"**Database**: {os.getenv('PGDATABASE', 'Not configured')}")
-            st.markdown(f"**Port**: {os.getenv('PGPORT', 'Not configured')}")
-            
-            # Performance metrics
-            try:
-                db_manager = st.session_state.get('db_manager')
-                if db_manager:
-                    record_count = db_manager.get_total_records()
-                    st.markdown(f"**Records**: {record_count:,} profiles")
-                else:
-                    st.markdown("**Records**: Database offline")
-            except Exception:
-                st.markdown("**Records**: Error retrieving count")
+
     
     # Modern footer with helpful tips
     st.markdown("""
@@ -416,6 +301,7 @@ def main():
         text-align: center;
         margin-top: 2rem;
         border: 1px solid #CBD5E0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
     ">
         <h4 style="color: #1E88E5; margin-bottom: 1rem;">💡 Pro Tips</h4>
         <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 1rem;">
